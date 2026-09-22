@@ -2,8 +2,8 @@ name: Instaladores
 
 # Gera o .exe (Windows) e o .dmg (macOS) do TENDENCI e publica na
 # release "latest" deste repositorio. Os arquivos ficam com URL fixa:
-#   https://github.com/tendencit-alt/tendenci-apps/releases/latest/download/TENDENCI-Setup.exe
-#   https://github.com/tendencit-alt/tendenci-apps/releases/latest/download/TENDENCI.dmg
+# https://github.com/tendencit-alt/tendenci-apps/releases/latest/download/TENDENCI-Setup.exe
+# https://github.com/tendencit-alt/tendenci-apps/releases/latest/download/TENDENCI.dmg
 #
 # O app e apenas um shell que abre www.tendencitech.com.br, entao todo
 # deploy do Vercel chega no usuario sem precisar reinstalar nada.
@@ -28,11 +28,14 @@ jobs:
         run: |
           set -eo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq librsvg2-bin imagemagick
+          sudo apt-get install -y -qq imagemagick
           mkdir -p icons
-          curl -sSfL -o icons/favicon.svg https://www.tendencitech.com.br/favicon.svg
-          rsvg-convert -w 1024 -h 1024 icons/favicon.svg -o icons/raw.png
-          convert -size 1024x1024 xc:"#16181d" icons/raw.png -gravity center -composite icons/icon.png
+          # icon-512.png e um PNG de verdade. O favicon.svg e so um wrapper
+          # com <image href="data:..."> dentro, e o rsvg-convert perdia o
+          # desenho e gerava um icone quebrado (so o traco azul aparecia).
+          curl -sSfL -o icons/base.png https://www.tendencitech.com.br/icon-512.png
+          convert icons/base.png -resize 1024x1024 -background none \
+            -gravity center -extent 1024x1024 icons/icon.png
           identify icons/icon.png
       - uses: actions/upload-artifact@v4
         with:
@@ -64,6 +67,8 @@ jobs:
   macos:
     needs: icone
     runs-on: macos-latest
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -73,13 +78,40 @@ jobs:
         with:
           name: icone
           path: app-shell/icons
-      - name: Build do instalador .dmg
+
+      - name: Empacotar o .app universal
         working-directory: app-shell
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: |
+          set -eo pipefail
           npm install --no-audit --no-fund
-          npx electron-builder --mac --publish never
+          npx electron-builder --mac dir --universal --publish never
+          find dist -maxdepth 2 -name "*.app" -print
+
+      # O lipo que junta x64 + arm64 deixa o binario final sem assinatura
+      # valida. No Apple Silicon isso faz o Gatekeeper acusar "Malware
+      # Bloqueado". A assinatura ad-hoc (--sign -) tira o bloqueio duro.
+      # O aviso de "desenvolvedor nao identificado" so some com um
+      # certificado Apple Developer ID + notarizacao (US$ 99/ano).
+      # O .dmg e montado na mao com hdiutil para nao correr o risco do
+      # electron-builder reempacotar e derrubar a assinatura.
+      - name: Assinar o app (ad-hoc) e gerar o .dmg
+        working-directory: app-shell
+        run: |
+          set -eo pipefail
+          APP="$(find dist -maxdepth 2 -name 'TENDENCI.app' -print -quit)"
+          echo "app: $APP"
+          xattr -cr "$APP"
+          codesign --remove-signature "$APP" || true
+          codesign --force --deep --timestamp=none --sign - "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP" || echo "AVISO: verify reclamou"
+          codesign --display --verbose=2 "$APP" || true
+          rm -rf dmgroot
+          mkdir -p dmgroot
+          ditto "$APP" "dmgroot/TENDENCI.app"
+          ln -s /Applications dmgroot/Applications
+          hdiutil create -volname TENDENCI -srcfolder dmgroot -ov -format UDZO dist/TENDENCI.dmg
+          ls -la dist/TENDENCI.dmg
+
       - uses: actions/upload-artifact@v4
         with:
           name: instalador-macos
