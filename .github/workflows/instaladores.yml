@@ -1,0 +1,113 @@
+name: Instaladores
+
+# Gera o .exe (Windows) e o .dmg (macOS) do TENDENCI e publica na
+# release "latest" deste repositorio. Os arquivos ficam com URL fixa:
+#   https://github.com/tendencit-alt/tendenci-apps/releases/latest/download/TENDENCI-Setup.exe
+#   https://github.com/tendencit-alt/tendenci-apps/releases/latest/download/TENDENCI.dmg
+#
+# O app e apenas um shell que abre www.tendencitech.com.br, entao todo
+# deploy do Vercel chega no usuario sem precisar reinstalar nada.
+# Repositorio publico: nenhum secret e necessario (usa o GITHUB_TOKEN).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "app-shell/**"
+      - ".github/workflows/instaladores.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  icone:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Gerar icone 1024x1024 a partir do site
+        run: |
+          set -eo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq librsvg2-bin imagemagick
+          mkdir -p icons
+          curl -sSfL -o icons/favicon.svg https://www.tendencitech.com.br/favicon.svg
+          rsvg-convert -w 1024 -h 1024 icons/favicon.svg -o icons/raw.png
+          convert -size 1024x1024 xc:"#16181d" icons/raw.png -gravity center -composite icons/icon.png
+          identify icons/icon.png
+      - uses: actions/upload-artifact@v4
+        with:
+          name: icone
+          path: icons/icon.png
+
+  windows:
+    needs: icone
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: actions/download-artifact@v4
+        with:
+          name: icone
+          path: app-shell/icons
+      - name: Build do instalador .exe
+        working-directory: app-shell
+        run: |
+          npm install --no-audit --no-fund
+          npx electron-builder --win --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: instalador-windows
+          path: app-shell/dist/TENDENCI-Setup.exe
+
+  macos:
+    needs: icone
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: actions/download-artifact@v4
+        with:
+          name: icone
+          path: app-shell/icons
+      - name: Build do instalador .dmg
+        working-directory: app-shell
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: |
+          npm install --no-audit --no-fund
+          npx electron-builder --mac --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: instalador-macos
+          path: app-shell/dist/TENDENCI.dmg
+
+  publicar:
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: instalador-windows
+          path: saida
+      - uses: actions/download-artifact@v4
+        with:
+          name: instalador-macos
+          path: saida
+      - name: Publicar na release latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eo pipefail
+          ls -la saida
+          gh release delete latest --yes --cleanup-tag || true
+          sleep 3
+          gh release create latest saida/TENDENCI-Setup.exe saida/TENDENCI.dmg \
+            --title "TENDENCI - ultima versao" \
+            --notes "Instaladores gerados automaticamente em $(date -u +%d/%m/%Y) as $(date -u +%H:%M) UTC." \
+            --latest
+          gh release view latest --json assets --jq ".assets[].name"
