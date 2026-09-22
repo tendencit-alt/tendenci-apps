@@ -1,0 +1,69 @@
+{
+  "name": "tendenci-desktop",
+  "version": "1.0.0",
+  "description": "TENDENCI - Sistema de Gestao",
+  "main": "main.js",
+  "author": "TENDENCI",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "dist": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "31.7.7",
+    "electron-builder": "24.13.3"
+  },
+  "build": {
+    "appId": "br.com.tendencitech.app",
+    "productName": "TENDENCI",
+    "copyright": "TENDENCI",
+    "directories": {
+      "output": "dist",
+      "buildResources": "icons"
+    },
+    "files": [
+      "main.js",
+      "package.json",
+      "icons/**"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "icons/icon.png",
+      "artifactName": "TENDENCI-Setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "TENDENCI",
+      "artifactName": "TENDENCI-Setup.${ext}"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        }
+      ],
+      "icon": "icons/icon.png",
+      "category": "public.app-category.business",
+      "identity": null,
+      "artifactName": "TENDENCI.${ext}"
+    },
+    "dmg": {
+      "title": "TENDENCI",
+      "artifactName": "TENDENCI.${ext}"
+    }
+  }
+}
